@@ -462,21 +462,10 @@ impl Bus {
 
     async fn emit_cache_signal<B>(&self, signal_name: &str, body: &B) -> Result<()>
     where
-        B: serde::Serialize + zbus::zvariant::DynamicType,
+        B: serde::Serialize + zbus::zvariant::Type,
     {
-        map_or_ignoring_recoverable_error(
-            self.conn
-                .emit_signal(
-                    Option::<BusName>::None,
-                    cache_path(),
-                    InterfaceName::from_str_unchecked("org.a11y.atspi.Cache"),
-                    MemberName::from_str_unchecked(signal_name),
-                    body,
-                )
-                .await,
-            (),
-            |_| (),
-        )
+        let message = cache_signal_message(signal_name, body)?;
+        map_or_ignoring_recoverable_error(self.conn.send(&message).await, (), |_| ())
     }
 
     async fn emit_event(
@@ -521,5 +510,27 @@ where
         Ok(result) => Ok(f(result)),
         Err(error) if zbus_error_is_unrecoverable(&error) => Err(error),
         Err(_) => Ok(default),
+    }
+}
+
+// Cache signals carry one struct argument, rather than its flattened fields.
+fn cache_signal_message<B>(signal_name: &str, body: &B) -> Result<zbus::Message>
+where
+    B: serde::Serialize + zbus::zvariant::Type,
+{
+    zbus::Message::signal(cache_path(), "org.a11y.atspi.Cache", signal_name)?
+        .build(&(body,))
+}
+
+#[cfg(test)]
+mod cache_signal_tests {
+    use super::*;
+
+    #[test]
+    fn cache_signals_preserve_single_struct_argument() {
+        let add = cache_signal_message("AddAccessible", &atspi::CacheItem::default()).unwrap();
+        assert_eq!(add.body().signature().to_string(), "((so)(so)(so)iiassusau)");
+        let remove = cache_signal_message("RemoveAccessible", &ObjectRefOwned::default()).unwrap();
+        assert_eq!(remove.body().signature().to_string(), "(so)");
     }
 }
