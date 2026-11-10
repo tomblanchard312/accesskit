@@ -526,11 +526,19 @@ where
 mod cache_signal_tests {
     use super::*;
 
+    fn wire_signature(message: &zbus::Message) -> &str {
+        // Read header field 8 (signature variant) without normalizing its structure.
+        let bytes = message.data().bytes();
+        let offset = bytes.windows(4).position(|v| v == [8, 1, b'g', 0]).unwrap() + 4;
+        let len = bytes[offset] as usize;
+        std::str::from_utf8(&bytes[offset + 1..offset + 1 + len]).unwrap()
+    }
+
     #[test]
     fn cache_signals_preserve_single_struct_argument() {
         let add = cache_signal_message("AddAccessible", &atspi::CacheItem::default()).unwrap();
-        assert_eq!(add.body().signature().to_string(), "((so)(so)(so)iiassusau)");
+        assert_eq!(wire_signature(&add), "((so)(so)(so)iiassusau)");
         let remove = cache_signal_message("RemoveAccessible", &ObjectRefOwned::default()).unwrap();
-        assert_eq!(remove.body().signature().to_string(), "(so)");
+        assert_eq!(wire_signature(&remove), "(so)");
     }
 }
